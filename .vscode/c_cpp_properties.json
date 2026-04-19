@@ -1,0 +1,30 @@
+{
+    "configurations": [
+        {
+            "name": "ESP32-C6",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${HOME}/.arduino15/packages/esp32/hardware/esp32/3.3.8/cores/esp32",
+                "${HOME}/.arduino15/packages/esp32/hardware/esp32/3.3.8/variants/esp32c6",
+                "${HOME}/.arduino15/packages/esp32/tools/esp32c6-libs/3.3.8/qio_qspi/include",
+                "${HOME}/.arduino15/packages/esp32/tools/esp32c6-libs/3.3.8/include/**",
+                "${HOME}/.arduino15/packages/esp32/tools/esp-rv32/2601/riscv32-esp-elf/include",
+                "${HOME}/.arduino15/packages/esp32/tools/esp-rv32/2601/lib/gcc/riscv32-esp-elf/14.2.0/include",
+                "${HOME}/.arduino15/packages/esp32/tools/esp-rv32/2601/picolibc/riscv32-esp-elf/include",
+                "${HOME}/.arduino15/packages/esp32"
+            ],
+            "defines": [
+                "ARDUINO=10819",
+                "ESP32",
+                "ESP_PLATFORM",
+                "ARDUINO_ESP32C6_DEV",
+                "F_CPU=160000000L"
+            ],
+            "compilerPath": "${HOME}/.arduino15/packages/esp32/tools/esp-rv32/2601/bin/riscv32-esp-elf-gcc",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "gcc-x86"
+        }
+    ],
+    "version": 4
+}
