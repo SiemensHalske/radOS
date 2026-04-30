@@ -4,12 +4,131 @@ A Geiger counter firmware for ESP32-C6 that doubles as a **true random number ge
 
 ## Theory of Operation
 
-Radioactive decay is a quantum mechanical process — each atom decays independently with a fixed probability per unit time. This produces a Poisson process with two useful properties:
+### Background: Radioactive Decay
 
-1. **Entropy**: Inter-pulse timing intervals are exponentially distributed and fundamentally unpredictable, making them an ideal entropy source for random number generation.
-2. **Timekeeping**: The long-term average count rate (λ) is a physical constant of the source. Given N counts at known λ, elapsed time T = N/λ with uncertainty σ_T = √N/λ.
+Radioactive decay is the spontaneous disintegration of an unstable atomic nucleus into a more stable configuration, releasing energy in the form of particles or electromagnetic radiation. It is governed entirely by quantum mechanics — there is no classical mechanism by which one can predict *when* a specific nucleus will decay. This is not a limitation of measurement; it is a fundamental feature of quantum probability.
 
-radOS captures microsecond-resolution pulse timestamps, filters GM tube afterpulses (< 5 ms), applies Von Neumann debiasing and SHA-256 conditioning to produce cryptographic-quality random bytes, and cross-checks the DS3231 RTC against nuclear-derived time estimates using a Kalman filter. Effective entropy rate is ~6-7 bits/sec at ~1650 CPM.
+#### Decay Modes
+
+The three primary decay modes relevant to radiation detection are:
+
+| Mode | Emission | Penetration | Relevance to J305 |
+|------|----------|-------------|-------------------|
+| **Alpha (α)** | $^4_2\text{He}$ nucleus | ~3–7 cm in air; stopped by paper | Not detected — stopped before tube window |
+| **Beta (β)** | Electron (β⁻) or positron (β⁺) | mm–cm in solids | Detected through thin mica/glass end window |
+| **Gamma (γ)** | High-energy photon | Metres in air; cm–cm in dense shielding | Detected via secondary electron ionisation in tube gas |
+
+The J305 tube used in radOS is primarily a **β/γ detector**. Thoriated tungsten electrodes (WT-40) are the radioactive source — they undergo β⁻ decay from Thorium-232 and its daughters, which also produce γ photons.
+
+#### The Decay Law
+
+A macroscopic sample of $N_0$ atoms of a radioactive isotope with decay constant $\lambda$ (s⁻¹) evolves according to:
+
+$$N(t) = N_0 \, e^{-\lambda t}$$
+
+The **half-life** $T_{1/2}$ — the time for half the atoms to decay — is:
+
+$$T_{1/2} = \frac{\ln 2}{\lambda}$$
+
+Thorium-232 has $T_{1/2} \approx 1.4 \times 10^{10}$ years, making its activity essentially constant on any human timescale. For radOS this is essential: λ is stable, so count-derived time estimates do not drift due to source depletion.
+
+#### Activity and Count Rate
+
+The **activity** $A$ of a source is the expected number of decays per second:
+
+$$A = \lambda N(t)$$
+
+measured in Becquerels (Bq; 1 Bq = 1 decay/s). What radOS observes is not $A$ directly but the **detected count rate** $\dot{n}$, which is smaller by the geometric and intrinsic efficiency $\varepsilon$ of the GM tube:
+
+$$\dot{n} = \varepsilon \cdot A$$
+
+For the WT-40 electrode bundle at the tube geometry used, $\dot{n} \approx 1650$ CPM = 27.5 counts/sec. The absolute value of $A$ is not needed — radOS calibrates $\lambda_{\text{eff}} = \dot{n}$ directly from accumulated counts, absorbing $\varepsilon$ into the calibration.
+
+#### GM Tube Detection Mechanism
+
+A Geiger-Müller tube is a gas-filled cylindrical capacitor held near its breakdown voltage (~400 V for the J305). When an ionising particle enters:
+
+1. It ionises gas atoms along its track, creating ion–electron pairs.
+2. Electrons accelerate toward the anode wire, gaining enough energy to cause **avalanche ionisation** — a Townsend cascade.
+3. The cascade produces a macroscopic current pulse (~µs rise time).
+4. UV photons from the discharge can trigger secondary avalanches elsewhere in the tube — **afterpulses**. A halogen-quenched fill gas (or external quench resistor) terminates the discharge within ~90 µs (the J305 dead time).
+5. The remaining positive ion sheath slowly drifts to the cathode (~100–500 µs), after which the tube is ready for the next event.
+
+radOS enforces a software dead-time of **5 ms** (much longer than the 90 µs tube dead time) to suppress any residual afterpulse artefacts that could introduce inter-pulse correlations into the entropy pool.
+
+---
+
+### Radioactive Decay as a Physical Process
+
+Radioactive decay is a quantum mechanical process — each nucleus in a sample decays independently with a constant probability per unit time `λ` (the decay constant). No memory, no correlation, no external influence. The number of decays in a fixed interval T follows a **Poisson distribution**:
+
+$$P(k) = \frac{(\lambda T)^k e^{-\lambda T}}{k!}$$
+
+where `k` is the observed count. Crucially, the **inter-arrival times** between successive decay events follow an **exponential distribution**:
+
+$$f(\Delta t) = \lambda \, e^{-\lambda \Delta t}$$
+
+This exponential distribution is memoryless — the probability of the next decay is independent of when the last one occurred. It is this irreducible quantum randomness that radOS exploits.
+
+### Entropy Source
+
+Each inter-pulse interval $\Delta t_i$ carries approximately $\log_2(\lambda \Delta t_i) + \log_2(e)$ bits of Shannon entropy. For a raw exponential distribution with mean $1/\lambda$, the differential entropy is:
+
+$$H = 1 - \log_2(\lambda) \text{ bits per sample (continuous)}$$
+
+At ~1650 CPM (λ ≈ 27.5 pulses/sec), after afterpulse filtering and **Von Neumann debiasing** (which discards ~50% of pairs), and accounting for the 1 bit per debiased pair output, the net entropy throughput is approximately **6–7 bits/sec**.
+
+**Von Neumann debiasing** removes bias from the raw timing bits without requiring knowledge of the underlying distribution. Consecutive interval pairs $(\Delta t_1, \Delta t_2)$ are compared:
+- $\Delta t_1 < \Delta t_2$ → emit `1`
+- $\Delta t_1 > \Delta t_2$ → emit `0`
+- $\Delta t_1 = \Delta t_2$ → discard (extremely rare at µs resolution)
+
+This produces unbiased bits regardless of the shape of the underlying distribution, requiring only that consecutive samples are i.i.d. (satisfied by memoryless decay).
+
+The debiased bits are XOR-folded into a **256-bit entropy pool** and conditioned through **SHA-256** (mbedTLS), which compresses the pool into a uniform output block. SHA-256 conditioning is a NIST SP 800-90B–approved construction that prevents an adversary from inferring pool state even with partial knowledge of the inputs.
+
+### Nuclear Timekeeping
+
+The mean count rate λ is a **physical constant** of the source — it depends only on the isotope's half-life, source geometry, and tube efficiency, none of which change on human timescales. This makes accumulated counts a reliable clock:
+
+$$T_{\text{nuclear}} = \frac{N}{\hat{\lambda}}$$
+
+where $N$ is the total count and $\hat{\lambda}$ is the calibrated rate (counts/sec). The **1σ timing uncertainty** follows from Poisson statistics:
+
+$$\sigma_T = \frac{\sqrt{N}}{\hat{\lambda}} = \frac{1}{\sqrt{\hat{\lambda} \cdot T}}$$
+
+At 1650 CPM (27.5 Hz), after 1 hour (N = 99,000 counts):
+
+$$\sigma_T = \frac{\sqrt{99000}}{27.5} \approx 11.4 \text{ sec}$$
+
+After 24 hours (N ≈ 2.376M counts):
+
+$$\sigma_T \approx \frac{\sqrt{2376000}}{27.5} \approx 56 \text{ sec}$$
+
+This is coarse compared to a crystal oscillator, but it is **physically grounded** — its accuracy depends on quantum mechanics, not oscillator aging or network trust.
+
+### Kalman Filter: Fusing Nuclear Time with the RTC
+
+The DS3231 RTC has a ±2 ppm TCXO, corresponding to ~63 ms/day drift at worst case. radOS fuses the RTC reading with the nuclear time estimate using a **1D Kalman filter**:
+
+**State**: RTC offset error $x_k$ (seconds the RTC is ahead of true time)
+
+**Predict step** (between checkpoints, over interval $\Delta T$):
+$$\hat{x}_{k|k-1} = \hat{x}_{k-1|k-1}$$
+$$P_{k|k-1} = P_{k-1|k-1} + Q \cdot \Delta T$$
+
+where $Q$ is the process noise (RTC drift variance per second, derived from the ±2 ppm spec).
+
+**Update step** (at each hourly checkpoint, when $z_k = T_{\text{RTC}} - T_{\text{nuclear}}$ is observed):
+$$K_k = \frac{P_{k|k-1}}{P_{k|k-1} + R_k}$$
+$$\hat{x}_{k|k} = \hat{x}_{k|k-1} + K_k (z_k - \hat{x}_{k|k-1})$$
+$$P_{k|k} = (1 - K_k) P_{k|k-1}$$
+
+where $R_k = \sigma_T^2$ is the nuclear time measurement variance at checkpoint $k$.
+
+Over successive checkpoints, the filter drives RTC correction toward the nuclear estimate, and the uncertainty $P$ shrinks as more counts accumulate. When the source is removed (**holdover mode**), $P$ grows at the rate $Q$ per second — the filter honestly reports its growing ignorance.
+
+The DS3231 aging register is adjusted when the long-term drift estimate stabilises (Stratum-1), trimming the RTC's frequency to match the nuclear reference.
 
 ## Hardware BOM
 
