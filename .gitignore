@@ -2,3 +2,7 @@ build/
 *.elf
 *.bin
 *.map
+psu_firmware/
+psu_uart_sniff/
+.vscode/
+.gitignore

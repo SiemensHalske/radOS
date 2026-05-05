@@ -55,29 +55,24 @@ void setup()
     hv_init();
     Serial.println("OK");
 
-    // Boost starts in hv_init(), wait for FB to confirm HV is up
+    // Boost starts in hv_init(), poll ADC FB until it crosses HV_FB_THRESH
     Serial.print("[HV] Ramping up");
     uint32_t t0 = millis();
-    // First wait for FB to go HIGH (circuit responding), then LOW (HV reached)
-    bool saw_boost = false;
     while ((millis() - t0) < HV_RAMP_TIMEOUT)
     {
         hv_update();
-        if (digitalRead(FB_PIN))
-            saw_boost = true;
-        if (saw_boost && hv_ready())
+        if (hv_ready())
             break;
         Serial.print(".");
         delay(100);
     }
     Serial.println();
 
-    if (!saw_boost || !hv_ready())
+    if (!hv_ready())
     {
-        Serial.print("[HV] WARN: ramp-up issue. FB saw_boost=");
-        Serial.print(saw_boost);
-        Serial.print(" ready=");
-        Serial.println(hv_ready());
+        Serial.print("[HV] WARN: ramp-up issue. FB=");
+        Serial.print(hv_read_mv());
+        Serial.println(" mV");
     }
     else
     {
@@ -96,8 +91,11 @@ void setup()
         Serial.println(" OK");
     }
 
-    Serial.print("[HV] FB state: ");
-    Serial.println(hv_ready() ? "OK" : "BOOST");
+    Serial.print("[HV] FB: ");
+    Serial.print(hv_read_mv());
+    Serial.print(" mV (");
+    Serial.print(hv_ready() ? "OK" : "BOOST");
+    Serial.println(")");
 
     // 3. RTC
     Serial.print("[RTC] Initializing... ");
@@ -312,7 +310,10 @@ static void handle_command(String &cmd)
         Serial.print(" | Total: ");
         Serial.println(pulse_get_total());
         Serial.print("HV: ");
-        Serial.println(hv_read_mv() ? "BOOST" : "OK");
+        Serial.print(hv_read_mv());
+        Serial.print(" mV (");
+        Serial.print(hv_ready() ? "OK" : "BOOST");
+        Serial.println(")");
         Serial.print("Entropy: ");
         Serial.print(trng_available());
         Serial.print("/");
@@ -717,7 +718,9 @@ void loop()
             Serial.print(" | ");
             Serial.print(usv, 3);
             Serial.print(" uSv/h | HV: ");
-            Serial.print(hv_read_mv() ? "BOOST" : "OK");
+            Serial.print(hv_read_mv());
+            Serial.print("mV ");
+            Serial.print(hv_ready() ? "OK" : "BOOST");
             Serial.print(" | Total: ");
             Serial.print(pulse_get_total());
             Serial.print(" | E:");

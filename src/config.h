@@ -4,7 +4,7 @@
 
 // --- Pin definitions ---
 #define TRG_PIN 6   // GM tube pulse input (interrupt)
-#define OUT_PIN 1   // Click output (buzzer/LED)
+#define OUT_PIN 7   // Click output (buzzer/LED)
 #define HV_PIN 4    // HV boost converter PWM
 #define FB_PIN 0    // HV feedback (ADC)
 #define NEO_PIN 8   // Onboard NeoPixel LED
@@ -23,8 +23,13 @@
 #define HV_HIGH_TIME 0.0457  // 45.7us high
 #define HV_LOW_TIME 0.0229   // 22.9us low
 #define HV_FREQ 14545.4545   // PWM frequency (Hz)
-#define HV_FB_THRESH 1250    // FB threshold in mV (above = HV OK, below = boost)
-#define HV_DUTY 0.667        // ~66.7% duty cycle (high / period)
+#define HV_FB_THRESH 180     // FB target in mV (regulation setpoint)
+#define HV_FB_HYST 60        // FB hysteresis in mV (deadband around setpoint)
+#define HV_DUTY 0.667        // Initial duty cycle (high / period)
+#define HV_DUTY_MIN 0.40     // Lower bound on regulator duty
+#define HV_DUTY_MAX 0.85     // Upper bound on regulator duty
+#define HV_DUTY_STEP 1       // PWM counts per regulation step (8-bit)
+#define HV_REG_INTERVAL_MS 20 // Min interval between regulation steps (ms)
 #define HV_RAMP_TIMEOUT 5000 // Max time to wait for HV ramp-up (ms)
 #define HV_SETTLE_MS 500     // Settle time after HV reaches target (ms)
 
